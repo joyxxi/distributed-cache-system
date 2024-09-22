@@ -3,7 +3,7 @@ package cache
 import (
 	"sync"
 
-	"github.com/joyxxi/distributed-cache-system/lru"
+	"github.com/joyxxi/distributed-cache-system/cache/lru"
 )
 
 type cache struct {
