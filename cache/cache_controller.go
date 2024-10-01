@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/joyxxi/distributed-cache-system/cache/singleflight"
 )
 
 // A Getter loads data for the key
@@ -25,6 +27,7 @@ type Group struct {
 	getter Getter
 	mainCache cache
 	peers PeerPicker
+	loader *singleflight.Group // make sure each key is only fetched once
 }
 
 var (
@@ -43,6 +46,7 @@ func NewGroup(name string, cacheBytes int64, getter Getter, ) *Group {
 		name: name,
 		getter: getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader: &singleflight.Group{},
 	}
 	groups[name] = g
 	return g
@@ -92,15 +96,22 @@ func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
 
 // Load value from a remote or local peer
 func (g *Group) load(key string) (value ByteView, err error) {
-	if g.peers != nil {
-		if peer, ok := g.peers.PickPeer(key); ok {
-			if value, err = g.getFromPeer(peer, key); err == nil {
-				return value, nil
+	viewi, err := g.loader.Do(key, func() (interface{}, error) {
+		if g.peers != nil {
+			if peer, ok := g.peers.PickPeer(key); ok {
+				if value, err = g.getFromPeer(peer, key); err == nil {
+					return value, nil
+				}
+				log.Println("[Cache] Failed to get from peer", err)
 			}
-			log.Println("[Cache] Failed to get from peer", err)
 		}
+		return g.getLocally(key)
+	})
+
+	if err == nil {
+		return viewi.(ByteView), nil
 	}
-	return g.getLocally(key)
+	return
 }
 
 // getLocally returns the source data through getter
